@@ -5,7 +5,7 @@
 bin\windows\zookeeper-server-start.bat config\zookeeper.properties
 # 启动kafka命令
 bin\windows\kafka-server-start.bat config\server.properties
-# 创建topic命令
+# 创建topic命令:设置副本数为1，表示直接一个副本(leader本身)
 bin\windows\kafka-topics.bat --bootstrap-server localhost:9092 --create --replication-factor 1 --partitions 1 --topic test
 # 查看所有topic的命令
 bin\windows\kafka-topics.bat --bootstrap-server localhost:9092 --list
