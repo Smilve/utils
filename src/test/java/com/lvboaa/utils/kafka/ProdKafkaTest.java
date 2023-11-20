@@ -1,5 +1,6 @@
 package com.lvboaa.utils.kafka;
 
+import com.alibaba.fastjson.JSONObject;
 import com.lvboaa.utils.BaseTest;
 import com.lvboaa.utils.kafka.config.MyPartitioner;
 import org.apache.kafka.clients.producer.*;
@@ -75,6 +76,7 @@ public class ProdKafkaTest {
      * 数设定，默认30s。例如2超时，(leader:0, isr:0,1)。
      *
      * 数据完全可靠条件 = ACK级别设置为-1 + 分区副本大于等于2 + ISR里应答的最小副本数量大于等于2
+     * 可能会发送多次，造成数据重复
      */
     @Test
     public void testProdACKSKafkaProducer() throws InterruptedException {
@@ -110,5 +112,60 @@ public class ProdKafkaTest {
         // 关闭资源
         kafkaProducer.close();
     }
+
+    /**
+     *  数据去重：保证数据幂等性和开启事务(事务必须要保证幂等性是开启的)
+     *  幂等性：不管数据发送了多少次，服务端都只会接收一次
+     *  重复数据判断标准：有<PID, Partition, SeqNumber>相同主键的消息提交，broker只会持久化一次
+     *      PID:kafka每次重启都会分配一个新的
+     *      Partition：表示分区
+     *      SeqNumber：是单调递增的
+     *   所以幂等性只能保证单分区内是幂等的：开启参数：enable.idempotence（默认开启为true,false为关闭）
+     *
+     */
+    @Test
+    public void testProdIdempotenceKafkaProducer() throws InterruptedException {
+        // 配置
+        Properties properties = new Properties();
+        // 连接kafka集群
+        properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:9092");
+        // 指定key和value的序列化类型
+        properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
+        properties.put(ProducerConfig.ACKS_CONFIG, "-1");
+        // 重试次数，默认为int的最大值
+        properties.put(ProducerConfig.RETRIES_CONFIG, "3");
+        properties.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "transaction_id_0");
+
+        // 创建kafka生产者
+        KafkaProducer<String, String> kafkaProducer = new KafkaProducer<>(properties);
+        kafkaProducer.initTransactions();
+        kafkaProducer.beginTransaction();
+        // 发送消息
+        try{
+            for (int i = 0; i < 5; i++) {
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("hello", "world");
+                kafkaProducer.send(new ProducerRecord<>("test", jsonObject.toJSONString()));
+            }
+            int i = 1/0;
+            kafkaProducer.commitTransaction();
+        }catch (Exception e){
+            logger.error("发送消息出错:" + e.getMessage(), e);
+            kafkaProducer.abortTransaction();
+        } finally {
+            // 关闭资源
+            kafkaProducer.close();
+        }
+
+    }
+
+    /**
+     *  数据有序：只能保证单分区内数据有序，多分区不能保证（保证全局有序，可以把消息发到一个分区去），一般不考虑
+     *  kafka设计出来是更适用于高吞吐、流式、大数据的场景，对数据的有序性要求较为宽松，如需要强有序性，kafka可能不是最佳选择
+     *  未开启幂等性：max.in.flight.requests.per.connection=1
+     *  开启幂等性：max.in.flight.requests.per.connection=5  （kafka服务端会缓存producer发来的最近5个request的元数据，故无论如何，都可以保证最近5个request的数据都是有序的）
+     */
 
 }

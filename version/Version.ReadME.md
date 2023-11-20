@@ -1,3 +1,9 @@
+# 连vpn了连不上git
+```md
+git config --global http.proxy http://127.0.0.1:10809
+git config --global http.proxy http://127.0.0.1:10809
+```
+
 ## windows下kafka命令
 
 ```md
